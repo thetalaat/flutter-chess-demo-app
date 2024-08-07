@@ -186,7 +186,7 @@ class _GameBoardState extends State<GameBoard> {
       }
 
       // calculate its valid moves
-      validMoves = calculateRawValidMoves(row, col, selectedPiece);
+      validMoves = calculateRealValidMoves(row, col, selectedPiece, true);
     });
   }
 
@@ -379,7 +379,25 @@ class _GameBoardState extends State<GameBoard> {
 
   // CALCULATE REAL VALID MOVES
   List<List<int>> calculateRealValidMoves(
-      int row, int col, Piece? piece, bool checkSimulation) {}
+      int row, int col, Piece? piece, bool checkSimulation) {
+    List<List<int>> realValidMoves = [];
+    List<List<int>> candidateMoves = calculateRawValidMoves(row, col, piece);
+
+    // filter out moves that will result a check
+    if (checkSimulation) {
+      for (var move in candidateMoves) {
+        int endRow = move[0];
+        int endCol = move[1];
+        if (simulatedMoveIsSafe(piece!, row, col, endRow, endCol)) {
+          realValidMoves.add(move);
+        }
+      }
+    } else {
+      realValidMoves = candidateMoves;
+    }
+
+    return realValidMoves;
+  }
 
   // MOVE PIECE
   void movePiece(int newRow, int newCol) {
@@ -407,6 +425,20 @@ class _GameBoardState extends State<GameBoard> {
     selectedCol = -1;
     validMoves = [];
 
+    // check if its check mate
+    if (isCheckMate(!isWhiteTurn)) {
+      showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+                title: const Text('CHECK MATE!'),
+                actions: [
+                  // plat again button
+                  TextButton(
+                      onPressed: resetGame, child: const Text('Play Again'))
+                ],
+              ));
+    }
+
     // switch turns
     isWhiteTurn = !isWhiteTurn;
   }
@@ -425,7 +457,7 @@ class _GameBoardState extends State<GameBoard> {
         }
 
         List<List<int>> piecesValidMoves =
-            calculateRawValidMoves(i, j, board[i][j]);
+            calculateRealValidMoves(i, j, board[i][j], false);
 
         if (piecesValidMoves.any((move) =>
             move[0] == kingPosition[0] && move[1] == kingPosition[1])) {
@@ -434,6 +466,81 @@ class _GameBoardState extends State<GameBoard> {
       }
     }
     return false;
+  }
+
+  // SIMULATE MOVE TO CHECK IF ITS SAFE
+  bool simulatedMoveIsSafe(
+      Piece piece, int startRow, int startCol, int endRow, int endCol) {
+    // save current board state
+    Piece? originalDestinationPiece = board[endRow][endCol];
+
+    // if the piece is the king save its current position and update it to the new one
+    List<int>? originalKingPosition;
+    if (piece.type == PieceType.king) {
+      originalKingPosition =
+          piece.isWhite ? whiteKingPosition : blackKingPosition;
+
+      // update king position
+      piece.isWhite
+          ? whiteKingPosition = [endRow, endCol]
+          : blackKingPosition = [endRow, endCol];
+    }
+
+    // simulate the move
+    board[endRow][endCol] = piece;
+    board[startRow][startCol] = null;
+
+    // check if the king is under attack
+    bool kingInCheck = isKingInCheck(piece.isWhite);
+
+    // restore board to its original state
+    board[startRow][startCol] = piece;
+    board[endRow][endCol] = originalDestinationPiece;
+
+    // if the piece was the king restore its position
+    if (piece.type == PieceType.king) {
+      piece.isWhite
+          ? whiteKingPosition = originalKingPosition!
+          : blackKingPosition = originalKingPosition!;
+    }
+
+    return !kingInCheck;
+  }
+
+  // IS IT CHECK MATE?
+  bool isCheckMate(bool isWhiteKing) {
+    if (!isKingInCheck(isWhiteKing)) return false;
+
+    // check if there is atleast one legal move
+    for (int i = 0; i < 8; i++) {
+      for (int j = 0; j < 8; j++) {
+        // skip empty and enemy squares
+        if (board[i][j] == null || board[i][j]!.isWhite != isWhiteKing) {
+          continue;
+        }
+
+        List<List<int>> pieceValidMoves =
+            calculateRealValidMoves(i, j, board[i][j], true);
+
+        if (pieceValidMoves.isNotEmpty) return false;
+      }
+    }
+
+    // no legal move = check mate
+    return true;
+  }
+
+// RESET THE GAME
+  void resetGame() {
+    Navigator.pop(context);
+    _initializeBoard();
+    checkStatus = false;
+    whiteDeadPieces.clear();
+    blackDeadPieces.clear();
+    whiteKingPosition = [7, 4];
+    blackKingPosition = [0, 4];
+    isWhiteTurn = true;
+    setState(() {});
   }
 
   @override
